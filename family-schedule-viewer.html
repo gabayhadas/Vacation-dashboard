@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>לוח זמנים משפחתי</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EEF2EE; --surface:#FFFFFF; --surface-2:#F6F9F5; --ink:#1C2B22;
+    --muted:#5B6B60; --accent:#2F6F62; --line:#DCE3DD; --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Rubik',sans-serif;}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 20px 60px;}
+  h1{font-size:26px;font-weight:700;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 22px;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px;}
+  .tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+  .tab{padding:8px 16px;border-radius:999px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-family:inherit;font-size:14px;font-weight:500;color:var(--muted);}
+  .tab.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .view{display:none;}
+  .view.active{display:block;}
+  .strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;}
+  .strip-card{flex:0 0 auto;min-width:120px;background:var(--surface-2);border-radius:12px;padding:10px 12px;border:1px solid var(--line);}
+  .strip-date{font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:500;}
+  .dot-row{display:flex;align-items:center;gap:6px;font-size:12px;margin:2px 0;}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500;}
+  .personblock, .placeblock{margin-bottom:16px;}
+  .personblock h3, .placeblock h3{font-size:16px;margin:0 0 8px;display:flex;align-items:center;gap:8px;}
+  .timeline{border-right:2px solid var(--line);padding-right:14px;}
+  .tl-item{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;}
+  .tl-date{color:var(--muted);}
+  .placegroup{background:var(--surface-2);border-radius:10px;padding:10px 12px;margin-bottom:8px;}
+  .placegroup .gdate{font-size:12px;color:var(--muted);font-weight:500;margin-bottom:4px;}
+  .peoplerow{display:flex;flex-wrap:wrap;gap:6px;}
+  .ppill{background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;}
+  .empty{color:var(--muted);font-size:13px;padding:10px 0;}
+  .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--accent);font-weight:500;margin:-10px 0 18px;}
+  .livedot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%{opacity:1;}50%{opacity:.35;}100%{opacity:1;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>לוח זמנים משפחתי</h1>
+  <p class="sub">מי נמצא איפה — לפי בן משפחה ולפי מקום</p>
+  <div class="livepill"><span class="livedot"></span>תצוגה חיה — מתעדכן אוטומטית</div>
+
+  <div class="card" style="padding-bottom:8px;">
+    <div class="strip" id="strip"></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-view="person" onclick="showView('person')">לפי בן משפחה</button>
+    <button class="tab" data-view="place" onclick="showView('place')">לפי מקום</button>
+  </div>
+
+  <div class="card view active" id="view-person">טוען...</div>
+  <div class="card view" id="view-place"></div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA_-YysheYF1NdOUhbmIwqwr-dPkrjFGLI",
+  authDomain: "vacation-dashboard-d83e8.firebaseapp.com",
+  projectId: "vacation-dashboard-d83e8",
+  storageBucket: "vacation-dashboard-d83e8.firebasestorage.app",
+  messagingSenderId: "920430072858",
+  appId: "1:920430072858:web:44cd0d543d73b68ed92da3"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const docRef = doc(db, "schedules", "main");
+
+const PLACE_COLORS = ['#2F6F62','#E2A63B','#C1666B','#4C7EA8','#8A9A5B','#8D8D8D','#7E57C2','#3D8FA6'];
+const PERSON_COLORS = ['#1F6F8B','#C0392B','#6B8E23','#B08D57','#8E44AD','#2E8B57','#D4696E','#4682B4'];
+let state = { people: [], places: [], dates: [], assignments: {} };
+
+function keyOf(date, person){ return date + '|' + person; }
+function colorForPlace(place){
+  const idx = state.places.indexOf(place);
+  return PLACE_COLORS[idx % PLACE_COLORS.length] || '#8D8D8D';
+}
+function colorForPerson(person){
+  const idx = state.people.indexOf(person);
+  return PERSON_COLORS[idx % PERSON_COLORS.length] || '#5B6B60';
+}
+function fmtDate(iso){
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('he-IL', { weekday:'short', day:'numeric', month:'numeric' });
+}
+
+window.showView = function(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.view===name));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+}
+
+function renderStrip(){
+  const strip = document.getElementById('strip');
+  strip.innerHTML = '';
+  if(state.dates.length === 0){
+    strip.innerHTML = '<p class="empty">אין תאריכים עדיין.</p>';
+    return;
+  }
+  state.dates.forEach(d=>{
+    const card = document.createElement('div');
+    card.className = 'strip-card';
+    let rows = '';
+    state.people.forEach(p=>{
+      const place = state.assignments[keyOf(d,p)];
+      if(place) rows += `<div class="dot-row"><span class="dot" style="background:${colorForPlace(place)}"></span>${p}</div>`;
+    });
+    if(!rows) rows = '<div class="dot-row" style="color:var(--muted);">אין שיבוץ</div>';
+    card.innerHTML = `<div class="strip-date">${fmtDate(d)}</div>${rows}`;
+    strip.appendChild(card);
+  });
+}
+
+function renderPersonView(){
+  const el = document.getElementById('view-person');
+  if(state.people.length===0){ el.innerHTML = '<p class="empty">אין נתונים עדיין.</p>'; return; }
+  let html = '';
+  state.people.forEach(p=>{
+    html += `<div class="personblock"><h3>${p}</h3><div class="timeline">`;
+    let any = false;
+    state.dates.forEach(d=>{
+      const place = state.assignments[keyOf(d,p)];
+      if(place){
+        any = true;
+        const c = colorForPlace(place);
+        html += `<div class="tl-item"><span class="tl-date">${fmtDate(d)}</span><span class="badge" style="background:${c}22;color:${c};">${place}</span></div>`;
+      }
+    });
+    if(!any) html += '<div class="empty">אין שיבוצים עדיין</div>';
+    html += '</div></div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderPlaceView(){
+  const el = document.getElementById('view-place');
+  if(state.places.length===0){ el.innerHTML = '<p class="empty">אין נתונים עדיין.</p>'; return; }
+  let html = '';
+  state.places.forEach(place=>{
+    const c = colorForPlace(place);
+    html += `<div class="placeblock"><h3><span class="dot" style="background:${c};width:11px;height:11px;"></span>${place}</h3>`;
+    let any = false;
+    state.dates.forEach(d=>{
+      const peopleHere = state.people.filter(p => state.assignments[keyOf(d,p)] === place);
+      if(peopleHere.length){
+        any = true;
+        html += `<div class="placegroup"><div class="gdate">${fmtDate(d)}</div><div class="peoplerow">`;
+        peopleHere.forEach(p=> {
+          const pc = colorForPerson(p);
+          html += `<span class="ppill" style="background:${pc}1a;color:${pc};border-color:${pc}55;">${p}</span>`;
+        });
+        html += '</div></div>';
+      }
+    });
+    if(!any) html += '<div class="empty">אף אחד לא משובץ כאן</div>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+onSnapshot(docRef, (snap)=>{
+  if(snap.exists()){
+    state = Object.assign(state, snap.data());
+  }
+  renderStrip();
+  renderPersonView();
+  renderPlaceView();
+}, (err)=>{
+  document.getElementById('view-person').innerHTML = '<p class="empty">שגיאה בטעינת הנתונים.</p>';
+});
+</script>
+</body>
+</html>
