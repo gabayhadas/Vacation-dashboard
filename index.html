@@ -41,6 +41,9 @@
   .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--accent);font-weight:500;margin:-10px 0 18px;}
   .livedot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.6s infinite;}
   @keyframes pulse{0%{opacity:1;}50%{opacity:.35;}100%{opacity:1;}}
+  .tl-note{color:var(--muted);font-size:12px;padding:0 0 8px;margin-top:-4px;}
+  .notesline{font-size:12px;color:var(--muted);margin-top:6px;}
+  .notesline b{color:var(--ink);font-weight:500;}
 </style>
 </head>
 <body>
@@ -81,7 +84,7 @@ const docRef = doc(db, "schedules", "main");
 
 const PLACE_COLORS = ['#2F6F62','#E2A63B','#C1666B','#4C7EA8','#8A9A5B','#8D8D8D','#7E57C2','#3D8FA6'];
 const PERSON_COLORS = ['#1F6F8B','#C0392B','#6B8E23','#B08D57','#8E44AD','#2E8B57','#D4696E','#4682B4'];
-let state = { people: [], places: [], dates: [], assignments: {} };
+let state = { people: [], places: [], dates: [], assignments: {}, notes: {} };
 
 function keyOf(date, person){ return date + '|' + person; }
 function colorForPlace(place){
@@ -136,7 +139,9 @@ function renderPersonView(){
       if(place){
         any = true;
         const c = colorForPlace(place);
+        const note = (state.notes && state.notes[keyOf(d,p)]) || '';
         html += `<div class="tl-item"><span class="tl-date">${fmtDate(d)}</span><span class="badge" style="background:${c}22;color:${c};">${place}</span></div>`;
+        if(note) html += `<div class="tl-note">📝 ${note}</div>`;
       }
     });
     if(!any) html += '<div class="empty">אין שיבוצים עדיין</div>';
@@ -162,7 +167,16 @@ function renderPlaceView(){
           const pc = colorForPerson(p);
           html += `<span class="ppill" style="background:${pc}1a;color:${pc};border-color:${pc}55;">${p}</span>`;
         });
-        html += '</div></div>';
+        html += '</div>';
+        const notesHere = peopleHere
+          .map(p => ({ p, note: (state.notes && state.notes[keyOf(d,p)]) || '' }))
+          .filter(x => x.note);
+        if(notesHere.length){
+          html += '<div class="notesline">';
+          html += notesHere.map(x => `<b>${x.p}:</b> ${x.note}`).join(' · ');
+          html += '</div>';
+        }
+        html += '</div>';
       }
     });
     if(!any) html += '<div class="empty">אף אחד לא משובץ כאן</div>';
@@ -175,6 +189,7 @@ onSnapshot(docRef, (snap)=>{
   if(snap.exists()){
     state = Object.assign(state, snap.data());
   }
+  if(!state.notes) state.notes = {};
   renderStrip();
   renderPersonView();
   renderPlaceView();
